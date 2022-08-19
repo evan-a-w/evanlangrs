@@ -18,3 +18,9 @@ fn (a, b, c, ...) <expr>
 
 type = a b identifier | type list sep by "->" | [[ <trait name>, ... ]]
 
+let ident = expr
+
+{
+    expr1;
+    expr2
+}
