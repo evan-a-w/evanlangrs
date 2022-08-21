@@ -3,7 +3,7 @@ expr : type_name
 
 (deftype (<type_params> <name>) (where (<type_param> is [<trait>, ...]) ...)?
   { <field> of <type>, ... })
-type a b ... name = { field of a, ... }
+type a b ... name `where a is [trait1, ...], b is ...`? = { field of a, ... }
 
 (deftype (<type_params> <name>) (where (<type_param> is [<trait>, ...]) ...)?
   ( <variant> of <type>?, ... ))
