@@ -24,3 +24,7 @@ let ident = expr
     expr1;
     expr2
 }
+
+type_expr := (type_expr) | func_type_expr | normal_type_expr
+func_type_expr := type_expr -> type_expr -> ... -> type_expr
+normal_type_expr := a b c ... t

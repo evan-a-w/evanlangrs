@@ -29,8 +29,6 @@ struct Trait<K> {
     items: Vec<Type<K>>,
 }
 
-enum CompTime {
-    
-}
+enum CompTime {}
 
 type TraidId = usize;
