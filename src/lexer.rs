@@ -2,11 +2,14 @@ use std::iter::Peekable;
 use std::marker::PhantomData;
 use std::str::Chars;
 
+type LexResult<T> = Result<T, LexErr>;
+type TraitSpec = (String, Vec<String>);
+
 enum AST {
     Typed(String, Box<AST>),
     DefType {
         params: Vec<String>,
-        trait_specs: Vec<(usize, Vec<String>)>,
+        trait_specs: Vec<TraitSpec>,
         fields: SumOrProd,
     },
     DefTrait {
@@ -89,7 +92,7 @@ fn get_ident(stream: &mut Peekable<Chars>) -> String {
     stream.take_while(|&c| is_identifier(c)).collect::<String>()
 }
 
-fn get_int(stream: &mut Peekable<Chars>) -> Result<i64, LexErr> {
+fn get_int(stream: &mut Peekable<Chars>) -> LexResult<i64> {
     let s = stream.take_while(|c| c.is_digit(10)).collect::<String>();
     match s.parse::<i64>() {
         Ok(i) => Ok(i),
@@ -101,7 +104,7 @@ fn skip_whitespace(stream: &mut Peekable<Chars>) {
     stream.take_while(|c| c.is_whitespace()).count();
 }
 
-fn get_string(s: &str, stream: &mut Peekable<Chars>) -> Result<bool, LexErr> {
+fn get_string(s: &str, stream: &mut Peekable<Chars>) -> LexResult<bool> {
     for e in s.chars() {
         match stream.next() {
             Some(c) if c == e => (),
@@ -112,7 +115,7 @@ fn get_string(s: &str, stream: &mut Peekable<Chars>) -> Result<bool, LexErr> {
     Ok(true)
 }
 
-fn get_string_ws(s: &str, stream: &mut Peekable<Chars>) -> Result<(), LexErr> {
+fn get_string_ws(s: &str, stream: &mut Peekable<Chars>) -> LexResult<()> {
     skip_whitespace(stream);
     get_string(s, stream)
 }
@@ -120,7 +123,7 @@ fn get_string_ws(s: &str, stream: &mut Peekable<Chars>) -> Result<(), LexErr> {
 fn get_definition_type_expr(
     stream: &mut Peekable<Chars>,
     del: char,
-) -> Result<(String, Vec<String>), LexErr> {
+) -> LexResult<(String, Vec<String>)> {
     let mut res: Vec<String>;
     let mut last: Option<String> = None;
 
@@ -165,7 +168,7 @@ fn check_func_next(
     stream: &mut Peekable<Chars>,
     del: char,
     func_del: bool,
-) -> Result<bool, LexErr> {
+) -> LexResult<bool> {
     let found_del = stream.peek().expect("Should have gone to del");
     if found_del == &'-' || func_del {
         if !func_del {
@@ -179,11 +182,27 @@ fn check_func_next(
     Ok(found_del != &del && !func_del)
 }
 
+fn get_multiple<T>(
+    stream: &mut Peekable<Chars>,
+    continue_sep: impl Fn(&mut Peekable<Chars>) -> LexResult<bool>,
+    one: impl Fn(&mut Peekable<Chars>) -> LexResult<T>,
+) -> LexResult<Vec<T>> {
+    let mut res = Vec::new();
+    loop {
+        skip_whitespace(stream);
+        if !continue_sep(stream)? {
+            break;
+        }
+        res.push(one(stream)?);
+    }
+    Ok(res)
+}
+
 fn get_single_type_expr(
     stream: &mut Peekable<Chars>,
     del: char,
     func_del: bool,
-) -> Result<TypeExpr<Any>, LexErr> {
+) -> LexResult<TypeExpr<Any>> {
     match stream.peek() {
         Some('(') => {
             stream.next();
@@ -208,7 +227,7 @@ fn get_type_expr(
     stream: &mut Peekable<Chars>,
     del: char,
     func_del: bool,
-) -> Result<TypeExpr<Any>, LexErr> {
+) -> LexResult<TypeExpr<Any>> {
     skip_whitespace(stream);
 
     let first = get_normal_type_expr(stream, &format!("{del}-"))?;
@@ -240,7 +259,7 @@ fn get_type_expr(
 fn get_normal_type_expr(
     stream: &mut Peekable<Chars>,
     dels: &str,
-) -> Result<TypeExpr<Normal>, LexErr> {
+) -> LexResult<TypeExpr<Normal>> {
     let mut res: Vec<TypeExpr<Any>>;
     let mut last: Option<String> = None;
 
@@ -284,7 +303,7 @@ fn get_normal_type_expr(
     }
 }
 
-fn is_expr_or(stream: &mut Peekable<Chars>, expr: &str, or: &str) -> Result<bool, LexErr> {
+fn is_expr_or(stream: &mut Peekable<Chars>, expr: &str, or: &str) -> LexResult<bool> {
     skip_whitespace(stream);
     match stream.peek() {
         Some(&c) if or.chars().any(|ch| ch == c) => Ok(false),
@@ -293,12 +312,46 @@ fn is_expr_or(stream: &mut Peekable<Chars>, expr: &str, or: &str) -> Result<bool
     }
 }
 
-fn lex_in_type(stream: &mut Peekable<Chars>) -> Result<AST, LexErr> {
+fn one_trait(stream: &mut Peekable<Chars>) -> LexResult<String> {
+    skip_whitespace(stream);
+    // here
+    //
+    Ok(get_ident(stream))
+}
+
+fn next_trait(s: &mut Peekable<Chars>) -> LexResult<bool> {
+    skip_whitespace(s);
+    match s.next() {
+        Some(',') => Ok(true),
+        Some(']') => Ok(false),
+        _ => Err(LexErr::Expected("trait name".to_string(), "EOF".to_string())),
+    }
+}
+
+fn get_trait_list(s: &mut Peekable<Chars>) -> LexResult<Vec<String>> {
+    skip_whitespace(s);
+    match s.peek() {
+        Some('[') => {
+            s.next();
+            get_multiple(s, next_trait, one_trait)
+        }
+        _ => Err(LexErr::Expected("trait list".to_string(), "EOF".to_string())),
+    }
+}
+
+fn get_single_trait_spec(s: &mut Peekable<Chars>) -> LexResult<TraitSpec> {
+    skip_whitespace(s);
+    let name = get_ident(s);
+}
+
+fn get_trait_specs(stream: &mut Peekable<Chars>) -> LexResult<Vec<TraitSpec>> {
+}
+
+fn lex_in_type(stream: &mut Peekable<Chars>) -> LexResult<AST> {
     let def_type_expr = get_definition_type_expr(stream, '=')?;
     skip_whitespace(stream);
     let trait_specs: Vec<(String, Vec<String>)> = if is_expr_or(stream, "where", "({")? {
-        // todo
-        vec![]
+        get_trait_specs(stream)?
     } else {
         vec![]
     };
@@ -306,7 +359,7 @@ fn lex_in_type(stream: &mut Peekable<Chars>) -> Result<AST, LexErr> {
     Err(LexErr::Unimplemented)
 }
 
-fn lex(stream: &mut Peekable<Chars>) -> Result<AST, LexErr> {
+fn lex(stream: &mut Peekable<Chars>) -> LexResult<AST> {
     while let Some(c) = stream.peek() {
         match c {
             '0'..='9' => return Ok(AST::Int(get_int(stream)? as i64)),
