@@ -92,6 +92,14 @@ fn get_ident(stream: &mut Peekable<Chars>) -> String {
     stream.take_while(|&c| is_identifier(c)).collect::<String>()
 }
 
+fn try_get_ident(stream: &mut Peekable<Chars>) -> LexResult<String> {
+    match stream.peek() {
+        Some(&c) if is_identifier(c) => Ok(get_ident(stream)),
+        Some(&c) => Err(LexErr::Expected("identifier".to_string(), c.to_string())),
+        None => Err(LexErr::Expected("identifier".to_string(), "EOF".to_string())),
+    }
+}
+
 fn get_int(stream: &mut Peekable<Chars>) -> LexResult<i64> {
     let s = stream.take_while(|c| c.is_digit(10)).collect::<String>();
     match s.parse::<i64>() {
@@ -314,8 +322,6 @@ fn is_expr_or(stream: &mut Peekable<Chars>, expr: &str, or: &str) -> LexResult<b
 
 fn one_trait(stream: &mut Peekable<Chars>) -> LexResult<String> {
     skip_whitespace(stream);
-    // here
-    //
     Ok(get_ident(stream))
 }
 
@@ -341,14 +347,33 @@ fn get_trait_list(s: &mut Peekable<Chars>) -> LexResult<Vec<String>> {
 
 fn get_single_trait_spec(s: &mut Peekable<Chars>) -> LexResult<TraitSpec> {
     skip_whitespace(s);
-    let name = get_ident(s);
+    let name = try_get_ident(s)?;
+    skip_whitespace(s);
+    get_string("is", s)?;
+    skip_whitespace(s);
+    let tl = get_trait_list(s)?;
+    Ok((name, tl))
+}
+
+fn trait_spec_sep(stream: &mut Peekable<Chars>) -> LexResult<bool> {
+    skip_whitespace(stream);
+    match stream.peek() {
+        Some(',') => {
+            stream.next();
+            Ok(true)
+        }
+        Some('(') | Some('{') => Ok(false),
+        _ => Err(LexErr::Expected("trait spec separator".to_string(), "EOF".to_string())),
+    }
 }
 
 fn get_trait_specs(stream: &mut Peekable<Chars>) -> LexResult<Vec<TraitSpec>> {
+    get_multiple(stream, trait_spec_sep, get_single_trait_spec)
 }
 
 fn lex_in_type(stream: &mut Peekable<Chars>) -> LexResult<AST> {
     let def_type_expr = get_definition_type_expr(stream, '=')?;
+
     skip_whitespace(stream);
     let trait_specs: Vec<(String, Vec<String>)> = if is_expr_or(stream, "where", "({")? {
         get_trait_specs(stream)?
