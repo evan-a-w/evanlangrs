@@ -123,16 +123,11 @@ fn get_string(s: &str, stream: &mut Peekable<Chars>) -> LexResult<bool> {
     Ok(true)
 }
 
-fn get_string_ws(s: &str, stream: &mut Peekable<Chars>) -> LexResult<()> {
-    skip_whitespace(stream);
-    get_string(s, stream)
-}
-
 fn get_definition_type_expr(
     stream: &mut Peekable<Chars>,
     del: char,
 ) -> LexResult<(String, Vec<String>)> {
-    let mut res: Vec<String>;
+    let mut res: Vec<String> = vec![];
     let mut last: Option<String> = None;
 
     loop {
@@ -177,8 +172,8 @@ fn check_func_next(
     del: char,
     func_del: bool,
 ) -> LexResult<bool> {
-    let found_del = stream.peek().expect("Should have gone to del");
-    if found_del == &'-' || func_del {
+    let found_del = *stream.peek().expect("Should have gone to del");
+    if found_del == '-' || func_del {
         if !func_del {
             stream.next();
         }
@@ -187,7 +182,7 @@ fn check_func_next(
         }
     }
 
-    Ok(found_del != &del && !func_del)
+    Ok(found_del != del && !func_del)
 }
 
 fn get_multiple<T>(
@@ -268,7 +263,7 @@ fn get_normal_type_expr(
     stream: &mut Peekable<Chars>,
     dels: &str,
 ) -> LexResult<TypeExpr<Normal>> {
-    let mut res: Vec<TypeExpr<Any>>;
+    let mut res: Vec<TypeExpr<Any>> = vec![];
     let mut last: Option<String> = None;
 
     loop {
