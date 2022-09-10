@@ -3,6 +3,7 @@
 
 mod lexer;
 mod types;
+mod tests;
 
 fn main() {
     println!("Hello, world!");
