@@ -107,6 +107,13 @@ fn take_while(stream: &mut Peekable<Chars>, f: impl Fn(char) -> bool) -> String 
     res
 }
 
+fn is_identifier_start(c: char) -> bool {
+    match c {
+        'a'..='z' | 'A'..='Z' | '_' => true,
+        _ => false,
+    }
+}
+
 fn is_identifier(c: char) -> bool {
     c.is_alphanumeric() || c == '_'
 }
@@ -207,6 +214,7 @@ fn check_func_next(stream: &mut Peekable<Chars>, dels: &str, func_del: bool) -> 
         if stream.peek() != Some(&'>') {
             return Err(LexErr::Expected(format!("->"), found_del.to_string()));
         }
+        stream.next();
         return Ok(!func_del);
     }
 
@@ -234,33 +242,39 @@ fn get_multiple<T>(
     Ok(res)
 }
 
-fn get_single_type_expr(
-    stream: &mut Peekable<Chars>,
-    dels: &str,
-    func_del: bool,
-) -> LexResult<TypeExpr<Any>> {
+fn extend_dels(dels: &str, c: char) -> String {
+    if dels.chars().any(|x| x == c) {
+        dels.to_string()
+    } else {
+        format!("{dels}{c}")
+    }
+}
+
+fn get_single_type_expr(stream: &mut Peekable<Chars>, dels: &str) -> LexResult<(TypeExpr<Any>, bool)> {
     match stream.peek() {
         Some('(') => {
             stream.next();
-            let new_dels = if dels.chars().any(|x| x == ')') {
-                String::from(dels)
-            } else {
-                format!("{})", dels)
-            };
+            Ok((get_type_expr(stream, ")", false)?, false))
+        }
+        _ => Ok((get_type_expr(stream, dels, true)?, true)),
+    }
+}
 
-            let inner = get_type_expr(stream, &new_dels, false)?;
+fn continue_pred(stream: &mut Peekable<Chars>, dels: &str, func_del: bool) -> LexResult<bool> {
+    match stream.peek().cloned() {
+        Some(c) if dels.chars().any(|x| x == c) => {
             stream.next();
-            Ok(inner)
+            if Some('>') == stream.peek().cloned() && c == '-' {
+                stream.next();
+                Ok(!func_del)
+            } else {
+                Ok(false)
+            }
         }
-        Some(c) if is_identifier(*c) => {
-            let inner = get_type_expr(stream, dels, true)?;
-            Ok(inner)
-        }
-        _ => {
-            return Err(LexErr::Expected(
-                "type_expr or identifier".to_string(),
-                "EOF".to_string(),
-            ))
+        Some(c) if c == '(' || is_identifier_start(c) => Ok(true),
+        other => {
+            debug_print_stream(stream);
+            Err(LexErr::Expected(dels.into(), format!("{other:?} in type conmt")))
         }
     }
 }
@@ -272,14 +286,13 @@ fn get_type_expr(
 ) -> LexResult<TypeExpr<Any>> {
     skip_whitespace(stream);
 
-    let first = get_normal_type_expr(stream, &format!("{dels}-"))?;
-    println!("{first:?}");
+    let extended = extend_dels(dels, '-');
+    let first = get_normal_type_expr(stream, &extended)?;
 
-    if !check_func_next(stream, dels, func_del)? {
+
+    if !continue_pred(stream, &extended, func_del)? {
         return Ok(first);
     }
-
-    stream.next();
 
     // Func thing
 
@@ -287,12 +300,24 @@ fn get_type_expr(
     loop {
         skip_whitespace(stream);
 
-        let next = get_single_type_expr(stream, dels, func_del)?;
-
-        if check_func_next(stream, dels, func_del)? {
-            stream.next();
-            args.push(next);
+        
+        let (next, eaten) = get_single_type_expr(stream, &extended)?;
+        let cont = if eaten {
+            match stream.peek() {
+                Some('>') => {
+                    stream.next();
+                    !func_del
+                }
+                _ => false,
+            }
         } else {
+            continue_pred(stream, &extended, func_del)?
+        };
+
+        args.push(next);
+
+        skip_whitespace(stream);
+        if !cont {
             let last = args.pop().expect("Shouldnt be empty func arg");
             break Ok(TypeExpr::Func(args, Box::new(last)));
         }
@@ -300,51 +325,43 @@ fn get_type_expr(
 }
 
 fn get_normal_type_expr(stream: &mut Peekable<Chars>, dels: &str) -> LexResult<TypeExpr<Normal>> {
-    let mut res: Vec<TypeExpr<Any>> = vec![];
-    let mut last: Option<String> = None;
+    let mut last = None;
+    let mut res = vec![];
 
     loop {
         skip_whitespace(stream);
-        match stream.peek() {
-            Some(&c) if dels.chars().any(|ch| ch == c) => {
-                break;
+
+        if let Some(c) = stream.peek() {
+            if dels.chars().any(|x| x == *c) {
+                return Ok(TypeExpr::Normal(
+                    last.ok_or(LexErr::Expected("normal type expr".into(), "else".into()))?,
+                    res,
+                ));
             }
-            _ => (),
         }
 
-        if let Some(name) = last.take() {
-            res.push(TypeExpr::Normal(name, vec![]));
+        if let Some(s) = last.take() {
+            res.push(TypeExpr::Normal(s, vec![]));
         }
 
         match stream.peek() {
+            Some('a'..='z') | Some('A'..='Z') | Some('_') => {
+                last = Some(get_ident(stream));
+            }
             Some('(') => {
-                stream.next();
-                let inner = get_type_expr(stream, ")", false)?;
-                stream.next();
-                res.push(inner);
+                res.push(get_type_expr(stream, ")", false)?);
             }
-            Some(c) if is_identifier(*c) => {
-                let name = get_ident(stream);
-                last = Some(name);
-            }
-            _ => {
+            other => {
                 return Err(LexErr::Expected(
-                    "type_expr or identifier".to_string(),
-                    "EOF".to_string(),
+                    "type definer".to_string(),
+                    format!("{other:?}"),
                 ))
             }
         }
     }
-
-    if let Some(last) = last {
-        return Ok(TypeExpr::Normal(last, res));
-    } else {
-        return Err(LexErr::Expected("type name".to_string(), "EOF".to_string()));
-    }
 }
 
-
-fn is_expr_or(stream: &mut Peekable<Chars>, expr: &str, or: &str) -> LexResult<bool> {
+pub fn is_expr_or(stream: &mut Peekable<Chars>, expr: &str, or: &str) -> LexResult<bool> {
     skip_whitespace(stream);
 
     let mut expri = expr.chars();
@@ -377,7 +394,10 @@ fn is_expr_or(stream: &mut Peekable<Chars>, expr: &str, or: &str) -> LexResult<b
     } else if right && ori.next().is_none() {
         Ok(false)
     } else {
-        Err(LexErr::Expected(format!("{expr} or {or}"), "something else".into()))
+        Err(LexErr::Expected(
+            format!("{expr} or {or}"),
+            "something else".into(),
+        ))
     }
 }
 
@@ -593,14 +613,18 @@ fn lex_in_fn(stream: &mut Peekable<Chars>) -> LexResult<AST> {
     match stream.peek() {
         Some('(') => {
             stream.next();
-            let params = get_multiple(stream, move |s| sep_by_comma(s, ')'), move |s| lex_var(s, ","))?;
+            let params = get_multiple(
+                stream,
+                move |s| sep_by_comma(s, ')'),
+                move |s| lex_var(s, ","),
+            )?;
             let body = Box::new(lex(stream)?);
-            Ok(AST::Fn {
-                params,
-                body,
-            })
+            Ok(AST::Fn { params, body })
         }
-        _ => Err(LexErr::Expected("arguments".into(), "something else".into()))
+        _ => Err(LexErr::Expected(
+            "arguments".into(),
+            "something else".into(),
+        )),
     }
 }
 
@@ -620,17 +644,17 @@ fn make_call(stream: &mut Peekable<Chars>, name: String) -> LexResult<AST> {
         Some('(') => {
             stream.next();
             let args = get_multiple(stream, move |s| sep_by_comma(s, ')'), move |s| lex(s))?;
-            Ok(AST::Call {
-                name,
-                args,
-            })
+            Ok(AST::Call { name, args })
         }
-        _ => Err(LexErr::Expected("arguments".into(), "something else".into()))
+        _ => Err(LexErr::Expected(
+            "arguments".into(),
+            "something else".into(),
+        )),
     }
 }
 
 pub fn lex(stream: &mut Peekable<Chars>) -> LexResult<AST> {
-    if let Some(c) = stream.peek() {
+    if let Some(c) = stream.peek().cloned() {
         match c {
             '0'..='9' => Ok(AST::Int(get_int(stream)? as i64)),
             'a'..='z' | 'A'..='Z' | '_' => {
@@ -643,10 +667,12 @@ pub fn lex(stream: &mut Peekable<Chars>) -> LexResult<AST> {
                     _ => make_call(stream, s),
                 }
             }
-            _ => Err(LexErr::Expected("not that".into(), format!("{c}")))
+            _ => {
+                debug_print_stream(stream);
+                Err(LexErr::Expected("not that".into(), format!("{c}")))
+            }
         }
     } else {
         Err(LexErr::Expected("char".into(), "eof".into()))
-
     }
 }

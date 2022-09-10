@@ -2,8 +2,8 @@
 #![allow(unused_variables)]
 
 mod lexer;
-mod types;
 mod tests;
+mod types;
 
 fn main() {
     println!("Hello, world!");
