@@ -1,29 +1,41 @@
-use crate::lexer::Any;
-use crate::lexer::TypeExpr::*;
-use crate::lexer::AST::*;
+use crate::ast::TypeExpr::*;
+use std::collections::HashMap;
+use crate::ast::AST::*;
+use crate::ast::*;
 use crate::lexer::*;
+use crate::parser::*;
 use crate::types::*;
 
-#[test]
-fn is_expr_or_expr_test() {
-    let mut s = "funny".chars().peekable();
+fn assert_str(s: &'static str, ast: AST) {
+    let stream = s.chars().peekable();
+    let mut token = Tokenizer::from(stream);
 
-    assert!(is_expr_or(&mut s, "funny", "=") == Ok(true));
-    assert!(s.next().is_none());
-
-    let mut s = "=".chars().peekable();
-    assert!(is_expr_or(&mut s, "funny", "=") == Ok(false));
-    assert!(s.next().is_none());
+    assert_eq!(parse(&mut token), Ok(ast));
 }
 
-fn assert_str(s: &str, ast: AST) {
-    let mut stream = s.chars().peekable();
-
-    assert_eq!(lex(&mut stream), Ok(ast));
-}
-
-fn make_type(s: String) -> TypeExpr<Any> {
+fn make_type(s: String) -> TypeExpr {
     Normal(s, vec![])
+}
+
+fn get_abc() -> TypeExpr {
+    Normal(
+        "c".into(),
+        vec![TypeExpr::Ident("a".into()), TypeExpr::Ident("b".into())],
+    )
+}
+
+fn get_ep_func() -> TypeExpr {
+    let res = Func(
+        vec![TypeExpr::Ident("a".into()), TypeExpr::Ident("b".into())],
+        Box::new(TypeExpr::Ident("c".into())),
+    );
+    let first = Normal(
+        "c".into(),
+        vec![TypeExpr::Ident("a".into()), TypeExpr::Ident("b".into())],
+    );
+    let second = TypeExpr::Ident("a".into());
+
+    Func(vec![first, second], Box::new(res))
 }
 
 #[test]
@@ -38,6 +50,17 @@ fn test_var_no_type() {
             body: Box::new(Int(1)),
         },
     );
+
+    assert_str(
+        "let a = 1",
+        Let {
+            ident: Var {
+                name: "a".into(),
+                type_expr: TypeExpr::Any,
+            },
+            body: Box::new(Int(1)),
+        },
+    );
 }
 
 #[test]
@@ -47,10 +70,7 @@ fn test_var() {
         Let {
             ident: Var {
                 name: "name".into(),
-                type_expr: Normal(
-                    "c".into(),
-                    vec![make_type("a".into()), make_type("b".into())],
-                ),
+                type_expr: get_abc(),
             },
             body: Box::new(Int(1)),
         },
@@ -61,9 +81,9 @@ fn test_var() {
 fn test_func_type() {
     let first = Normal(
         "c".into(),
-        vec![make_type("a".into()), make_type("b".into())],
+        vec![TypeExpr::Ident("a".into()), TypeExpr::Ident("b".into())],
     );
-    let second = make_type("a".into());
+    let second = TypeExpr::Ident("a".into());
 
     assert_str(
         "let name : a b c -> a = 1",
@@ -79,24 +99,32 @@ fn test_func_type() {
 
 #[test]
 fn test_func_type_bra() {
-    let res = Func(
-        vec![make_type("a".into()), make_type("b".into())],
-        Box::new(make_type("c".into())),
-    );
-    let first = Normal(
-        "c".into(),
-        vec![make_type("a".into()), make_type("b".into())],
-    );
-    let second = make_type("a".into());
 
     assert_str(
         "let name : a b c -> a -> (a -> b -> c) = 1",
         Let {
             ident: Var {
                 name: "name".into(),
-                type_expr: Func(vec![first, second], Box::new(res)),
+                type_expr: get_ep_func(),
             },
             body: Box::new(Int(1)),
+        },
+    );
+}
+
+#[test]
+fn test_type_expr() {
+    assert_str(
+        "type a b c ( Some, X of a b c )",
+        DefType {
+            name: ("c".into(), vec!["a".into(), "b".into()]),
+            trait_specs: vec![],
+            fields: SumOrProd::Sum({
+                let mut map = HashMap::new();
+                map.insert("Some".into(), None);
+                map.insert("X".into(), Some(get_abc()));
+                map
+            }),
         },
     );
 }
