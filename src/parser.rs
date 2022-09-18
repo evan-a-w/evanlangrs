@@ -20,7 +20,6 @@ pub fn parse(stream: &mut Tokenizer) -> ParseResult<AST> {
         Some(Token::Ident(s)) if s == "fn" => parse_in_fn(stream),
         Some(Token::Ident(s)) if s == "let" => parse_in_let(stream),
         Some(Token::Ident(name)) => {
-            stream.next();
             if stream.peek() == &Some(Token::ParenOpen) {
                 stream.next();
                 parse_call(stream, name)
@@ -29,6 +28,18 @@ pub fn parse(stream: &mut Tokenizer) -> ParseResult<AST> {
             }
         }
         Some(Token::BraceOpen) => parse_in_scope(stream),
+        Some(Token::ParenOpen) => {
+            stream.next();
+            let expr = parse(stream)?;
+            if stream.peek() != &Some(Token::ParenClose) {
+                return Err(ParseErr::Expected(
+                    ")".to_string(),
+                    format!("{:?}", stream.peek()),
+                ));
+            }
+            stream.next();
+            Ok(expr)
+        }
         _ => Err(ParseErr::Expected(
             "expression".to_string(),
             format!("{:?}", stream.peek()),
@@ -38,9 +49,7 @@ pub fn parse(stream: &mut Tokenizer) -> ParseResult<AST> {
 
 fn sep_by_comma(stream: &mut Tokenizer, end_tok: &Token) -> ParseResult<bool> {
     match stream.peek() {
-        Some(t) if t == end_tok => {
-            Ok(false)
-        }
+        Some(t) if t == end_tok => Ok(false),
         Some(Token::Comma) => {
             stream.next();
             match stream.peek() {
@@ -74,7 +83,11 @@ fn get_sum_or_prod_element(
     match stream.peek() {
         Some(Token::Ident(s)) if s == "of" => {
             stream.next();
-            let del = if sum { Token::ParenClose } else { Token::BraceClose };
+            let del = if sum {
+                Token::ParenClose
+            } else {
+                Token::BraceClose
+            };
             let texpr = get_type_expr(stream, &[Token::Comma, del])?;
             Ok((name, Some(texpr)))
         }
@@ -170,10 +183,12 @@ fn get_definition_type_expr(stream: &mut Tokenizer) -> ParseResult<(String, Vec<
                 }
                 last = Some(stream.take_peek_string());
             }
-            _ => return Err(ParseErr::Expected(
-                "identifier".to_string(),
-                "EOF".to_string(),
-            )),
+            _ => {
+                return Err(ParseErr::Expected(
+                    "identifier".to_string(),
+                    "EOF".to_string(),
+                ))
+            }
         }
     }
 
@@ -192,7 +207,7 @@ fn get_trait_specs(stream: &mut Tokenizer) -> ParseResult<Vec<TraitSpec>> {
 }
 
 fn get_string(s: &str, stream: &mut Tokenizer) -> ParseResult<String> {
-    match stream.next() {
+    match stream.peek() {
         Some(Token::Ident(sp)) if sp == s => Ok(stream.take_peek_string()),
         _ => Err(ParseErr::Expected(s.to_string(), "EOF".to_string())),
     }
@@ -280,6 +295,21 @@ fn get_multiple<T>(
     Ok(res)
 }
 
+fn get_multiple0<T>(
+    stream: &mut Tokenizer,
+    continue_sep: impl Fn(&mut Tokenizer) -> ParseResult<bool>,
+    one: impl Fn(&mut Tokenizer) -> ParseResult<T>,
+) -> ParseResult<Vec<T>> {
+    let mut res = vec![];
+    loop {
+        if !continue_sep(stream)? {
+            break;
+        }
+        res.push(one(stream)?);
+    }
+    Ok(res)
+}
+
 fn get_single_type_expr(stream: &mut Tokenizer, dels: &[Token]) -> ParseResult<TypeExpr> {
     let mut v = vec![];
 
@@ -288,7 +318,11 @@ fn get_single_type_expr(stream: &mut Tokenizer, dels: &[Token]) -> ParseResult<T
             Some(t) if dels.contains(&t) => break,
             Some(Token::Arrow) => break,
             Some(Token::Ident(s)) => {
-                let s = if let Some(Token::Ident(s)) = stream.next() { s } else { unreachable!() };
+                let s = if let Some(Token::Ident(s)) = stream.next() {
+                    s
+                } else {
+                    unreachable!()
+                };
                 v.push(TypeExpr::Ident(s));
             }
             Some(Token::ParenOpen) => {
@@ -409,12 +443,19 @@ fn is_expr_or(stream: &mut Tokenizer, expr: Token, or: Token) -> ParseResult<boo
 fn parse_var(stream: &mut Tokenizer, dels: &[Token]) -> ParseResult<Var> {
     let name = try_get_ident(stream)?;
 
-    let type_expr = if is_expr_or(stream, Token::Colon, Token::Equals)? {
-        let res = get_type_expr(stream, dels)?;
-        stream.next();
-        res
-    } else {
-        TypeExpr::Any
+    let type_expr = match stream.peek() {
+        Some(Token::Colon) => {
+            stream.next();
+            let res = get_type_expr(stream, dels)?;
+            res
+        }
+        other if dels.iter().any(|x| Some(x) == other.as_ref()) => TypeExpr::Any,
+        other => {
+            return Err(ParseErr::Expected(
+                "type expression or nothing".to_string(),
+                format!("{:?}", other),
+            ))
+        }
     };
 
     Ok(Var { name, type_expr })
@@ -427,8 +468,16 @@ fn parse_in_fn(stream: &mut Tokenizer) -> ParseResult<AST> {
             let params = get_multiple(
                 stream,
                 move |s| sep_by_comma(s, &Token::ParenClose),
-                move |s| parse_var(s, &[Token::Comma]),
+                move |s| parse_var(s, &[Token::Comma, Token::ParenClose]),
             )?;
+            stream.next();
+            let next = stream.next();
+            if next != Some(Token::Arrow) {
+                return Err(ParseErr::Expected(
+                    "->".to_string(),
+                    format!("{:?}", next),
+                ));
+            }
             let body = Box::new(parse(stream)?);
             Ok(AST::Fn { params, body })
         }
@@ -441,6 +490,8 @@ fn parse_in_fn(stream: &mut Tokenizer) -> ParseResult<AST> {
 
 fn parse_in_let(stream: &mut Tokenizer) -> ParseResult<AST> {
     let var = parse_var(stream, &[Token::Equals])?;
+
+    stream.next();
 
     Ok(AST::Let {
         ident: var,
@@ -477,7 +528,5 @@ fn scope_sep(stream: &mut Tokenizer) -> ParseResult<bool> {
 
 fn parse_in_scope(stream: &mut Tokenizer) -> ParseResult<AST> {
     stream.next();
-    // need to make it not eat or smth
-    let body = get_multiple(stream, scope_sep, parse)?;
-    Ok(AST::Scope(body))
+    Ok(AST::Scope(get_multiple0(stream, scope_sep, parse)?))
 }

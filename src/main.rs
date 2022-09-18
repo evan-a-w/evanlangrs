@@ -16,14 +16,18 @@ fn main() {
         let a = 1;
         let b = 2;
         type a b c ( Some, X of a b c )
-    }".chars().peekable();
+    }"
+    .chars()
+    .peekable();
 
     let mut token = Tokenizer::from(stream);
     println!("{:?}", parse(&mut token));
 
     let stream = "
         type a b c ( Some, X of a b c )
-    ".chars().peekable();
+    "
+    .chars()
+    .peekable();
 
     let mut token = Tokenizer::from(stream);
     println!("{:?}", parse(&mut token));

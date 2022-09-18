@@ -14,7 +14,7 @@ type a b ... name ( variant of a?, ... )
 trait a b ... name { thingy of type, ... }
 
 (fn (<params>) <expr>)
-fn (a, b, c, ...) <expr>
+fun (a, b, c, ...) <expr>
 
 type = a b identifier | type list sep by "->" | [[ <trait name>, ... ]]
 

@@ -1,10 +1,10 @@
 use crate::ast::TypeExpr::*;
-use std::collections::HashMap;
 use crate::ast::AST::*;
 use crate::ast::*;
 use crate::lexer::*;
 use crate::parser::*;
 use crate::types::*;
+use std::collections::HashMap;
 
 fn assert_str(s: &'static str, ast: AST) {
     let stream = s.chars().peekable();
@@ -99,7 +99,6 @@ fn test_func_type() {
 
 #[test]
 fn test_func_type_bra() {
-
     assert_str(
         "let name : a b c -> a -> (a -> b -> c) = 1",
         Let {
@@ -152,13 +151,38 @@ fn test_type_expr3() {
         "type a b c where a is [show] { Y of c, X of a b c }",
         DefType {
             name: ("c".into(), vec!["a".into(), "b".into()]),
-            trait_specs: vec![],
+            trait_specs: vec![("a".into(), vec!["show".into()])],
             fields: SumOrProd::Prod({
                 let mut map = HashMap::new();
                 map.insert("Y".into(), TypeExpr::Ident("c".into()));
                 map.insert("X".into(), get_abc());
                 map
             }),
+        },
+    );
+}
+
+#[test]
+fn function() {
+    assert_str(
+        "fn (x) -> x",
+        Fn {
+            params: vec![Var {
+                name: "x".into(),
+                type_expr: TypeExpr::Any,
+            }],
+            body: Box::new(AST::Ident("x".into())),
+        },
+    );
+}
+
+#[test]
+fn call() {
+    assert_str(
+        "call (x)",
+        Call {
+            name: "call".into(),
+            args: vec![AST::Ident("x".into())],
         },
     );
 }
