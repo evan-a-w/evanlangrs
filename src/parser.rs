@@ -58,9 +58,9 @@ fn sep_by_comma(stream: &mut Tokenizer, end_tok: &Token) -> ParseResult<bool> {
 fn try_get_ident(stream: &mut Tokenizer) -> ParseResult<String> {
     match stream.next() {
         Some(Token::Ident(s)) => Ok(s),
-        _ => Err(ParseErr::Expected(
+        other => Err(ParseErr::Expected(
             "identifier".to_string(),
-            format!("{:?}", stream.peek()),
+            format!("{:?}", other),
         )),
     }
 }
@@ -116,6 +116,7 @@ fn parse_in_type(stream: &mut Tokenizer) -> ParseResult<AST> {
 
     let trait_specs = if stream.peek() == &Some(Token::Ident("where".to_string())) {
         stream.next();
+        stream.debug_print();
         get_trait_specs(stream)?
     } else {
         vec![]

@@ -23,6 +23,7 @@ pub enum Token {
     Int(i64),
 }
 
+#[derive(Debug, Clone)]
 pub struct Tokenizer<'a> {
     input: Peekable<Chars<'a>>,
     last: Option<Token>,
@@ -128,6 +129,13 @@ impl Tokenizer<'_> {
                 }
             }
             None => None,
+        }
+    }
+
+    pub fn debug_print(&mut self) {
+        let mut other = self.clone();
+        while let Some(t) = other.next() {
+            println!("{:?}", t);
         }
     }
 }
