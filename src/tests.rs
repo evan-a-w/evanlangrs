@@ -128,3 +128,37 @@ fn test_type_expr() {
         },
     );
 }
+
+#[test]
+fn test_type_expr2() {
+    assert_str(
+        "type a b c { Y of c, X of a b c }",
+        DefType {
+            name: ("c".into(), vec!["a".into(), "b".into()]),
+            trait_specs: vec![],
+            fields: SumOrProd::Prod({
+                let mut map = HashMap::new();
+                map.insert("Y".into(), TypeExpr::Ident("c".into()));
+                map.insert("X".into(), get_abc());
+                map
+            }),
+        },
+    );
+}
+
+#[test]
+fn test_type_expr3() {
+    assert_str(
+        "type a b c where a is [show] { Y of c, X of a b c }",
+        DefType {
+            name: ("c".into(), vec!["a".into(), "b".into()]),
+            trait_specs: vec![],
+            fields: SumOrProd::Prod({
+                let mut map = HashMap::new();
+                map.insert("Y".into(), TypeExpr::Ident("c".into()));
+                map.insert("X".into(), get_abc());
+                map
+            }),
+        },
+    );
+}

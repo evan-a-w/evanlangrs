@@ -39,7 +39,6 @@ pub fn parse(stream: &mut Tokenizer) -> ParseResult<AST> {
 fn sep_by_comma(stream: &mut Tokenizer, end_tok: &Token) -> ParseResult<bool> {
     match stream.peek() {
         Some(t) if t == end_tok => {
-            stream.next();
             Ok(false)
         }
         Some(Token::Comma) => {
@@ -74,7 +73,9 @@ fn get_sum_or_prod_element(
 
     match stream.peek() {
         Some(Token::Ident(s)) if s == "of" => {
-            let texpr = get_type_expr(stream, &[Token::Comma, Token::ParenClose])?;
+            stream.next();
+            let del = if sum { Token::ParenClose } else { Token::BraceClose };
+            let texpr = get_type_expr(stream, &[Token::Comma, del])?;
             Ok((name, Some(texpr)))
         }
         Some(Token::Comma) | Some(Token::ParenClose) => {
@@ -111,9 +112,15 @@ fn prod_sep(stream: &mut Tokenizer) -> ParseResult<bool> {
 }
 
 fn parse_in_type(stream: &mut Tokenizer) -> ParseResult<AST> {
-    let (def_type_expr, w) = get_definition_type_expr(stream)?;
+    let def_type_expr = get_definition_type_expr(stream)?;
 
-    let trait_specs = if w { get_trait_specs(stream)? } else { vec![] };
+    let trait_specs = if stream.peek() == &Some(Token::Ident("where".to_string())) {
+        stream.next();
+        get_trait_specs(stream)?
+    } else {
+        vec![]
+    };
+
     let fields = match stream.next() {
         Some(Token::ParenOpen) => SumOrProd::Sum(
             get_multiple(stream, sum_sep, get_sum_element)?
@@ -139,6 +146,8 @@ fn parse_in_type(stream: &mut Tokenizer) -> ParseResult<AST> {
         }
     };
 
+    stream.next();
+
     Ok(AST::DefType {
         name: def_type_expr,
         trait_specs,
@@ -146,43 +155,29 @@ fn parse_in_type(stream: &mut Tokenizer) -> ParseResult<AST> {
     })
 }
 
-fn get_definition_type_expr(stream: &mut Tokenizer) -> ParseResult<((String, Vec<String>), bool)> {
+fn get_definition_type_expr(stream: &mut Tokenizer) -> ParseResult<(String, Vec<String>)> {
     let mut res: Vec<String> = vec![];
     let mut last: Option<String> = None;
 
-    let mut r#where = false;
-
     loop {
         match stream.peek() {
-            Some(Token::ParenOpen) | Some(Token::BraceOpen) => {
-                stream.next();
-                break;
-            }
-            _ => (),
-        }
-        if let Some(s) = last.take() {
-            res.push(s);
-        }
-
-        match stream.peek() {
+            Some(Token::ParenOpen) | Some(Token::BraceOpen) => break,
+            Some(Token::Ident(s)) if s == "where" => break,
             Some(Token::Ident(name)) => {
-                if name == "where" {
-                    r#where = true;
-                    break;
+                if let Some(s) = last.take() {
+                    res.push(s);
                 }
                 last = Some(stream.take_peek_string());
             }
-            _ => {
-                return Err(ParseErr::Expected(
-                    "identifier".to_string(),
-                    "EOF".to_string(),
-                ))
-            }
+            _ => return Err(ParseErr::Expected(
+                "identifier".to_string(),
+                "EOF".to_string(),
+            )),
         }
     }
 
     if let Some(last) = last {
-        return Ok(((last, res), r#where));
+        return Ok((last, res));
     } else {
         return Err(ParseErr::Expected(
             "type definer".to_string(),
@@ -284,15 +279,22 @@ fn get_multiple<T>(
     Ok(res)
 }
 
-fn get_single_type_expr(stream: &mut Tokenizer, dels: &[Token]) -> ParseResult<(TypeExpr, Token)> {
+fn get_single_type_expr(stream: &mut Tokenizer, dels: &[Token]) -> ParseResult<TypeExpr> {
     let mut v = vec![];
 
-    let arrow = loop {
-        match stream.next() {
-            Some(t) if dels.contains(&t) => break t,
-            Some(Token::Arrow) => break Token::Arrow,
-            Some(Token::Ident(s)) => v.push(TypeExpr::Ident(s)),
-            Some(Token::ParenOpen) => v.push(get_type_expr(stream, &[Token::ParenClose])?),
+    loop {
+        match stream.peek() {
+            Some(t) if dels.contains(&t) => break,
+            Some(Token::Arrow) => break,
+            Some(Token::Ident(s)) => {
+                let s = if let Some(Token::Ident(s)) = stream.next() { s } else { unreachable!() };
+                v.push(TypeExpr::Ident(s));
+            }
+            Some(Token::ParenOpen) => {
+                stream.next();
+                v.push(get_type_expr(stream, &[Token::ParenClose])?);
+                stream.next();
+            }
             other => {
                 return Err(ParseErr::Expected(
                     "type expression".to_string(),
@@ -300,7 +302,7 @@ fn get_single_type_expr(stream: &mut Tokenizer, dels: &[Token]) -> ParseResult<(
                 ))
             }
         }
-    };
+    }
 
     let last = v.pop().ok_or(ParseErr::Expected(
         "type expression".to_string(),
@@ -308,9 +310,9 @@ fn get_single_type_expr(stream: &mut Tokenizer, dels: &[Token]) -> ParseResult<(
     ))?;
 
     if v.len() == 0 {
-        Ok((last, arrow))
+        Ok(last)
     } else if let TypeExpr::Ident(s) = last {
-        Ok((TypeExpr::Normal(s, v), arrow))
+        Ok(TypeExpr::Normal(s, v))
     } else {
         Err(ParseErr::Expected(
             "some type".to_string(),
@@ -335,9 +337,15 @@ fn get_multiple_prime<T>(
 }
 
 fn get_type_expr(stream: &mut Tokenizer, dels: &[Token]) -> ParseResult<TypeExpr> {
-    let mut multi = get_multiple_prime(stream, |s| {
-        let (res, end) = get_single_type_expr(s, dels)?;
-        Ok((res, end == Token::Arrow))
+    let mut multi = get_multiple_prime(stream, move |s| {
+        let res = get_single_type_expr(s, dels)?;
+        let cont = if s.peek() == &Some(Token::Arrow) {
+            s.next();
+            true
+        } else {
+            false
+        };
+        Ok((res, cont))
     })?;
 
     let result = multi.pop().ok_or(ParseErr::Expected(
@@ -353,9 +361,15 @@ fn get_type_expr(stream: &mut Tokenizer, dels: &[Token]) -> ParseResult<TypeExpr
 }
 
 fn parse_in_trait(stream: &mut Tokenizer) -> ParseResult<AST> {
-    let (def_type_expr, w) = get_definition_type_expr(stream)?;
+    let def_type_expr = get_definition_type_expr(stream)?;
 
-    let trait_specs = if w { get_trait_specs(stream)? } else { vec![] };
+    let trait_specs = if stream.peek() == &Some(Token::Ident("where".to_string())) {
+        stream.next();
+        get_trait_specs(stream)?
+    } else {
+        vec![]
+    };
+
     let paren: bool = match stream.next() {
         Some(Token::ParenOpen) => Ok(true),
         Some(Token::BraceOpen) => Ok(false),
@@ -395,7 +409,9 @@ fn parse_var(stream: &mut Tokenizer, dels: &[Token]) -> ParseResult<Var> {
     let name = try_get_ident(stream)?;
 
     let type_expr = if is_expr_or(stream, Token::Colon, Token::Equals)? {
-        get_type_expr(stream, dels)?
+        let res = get_type_expr(stream, dels)?;
+        stream.next();
+        res
     } else {
         TypeExpr::Any
     };

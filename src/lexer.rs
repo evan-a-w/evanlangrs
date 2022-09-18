@@ -66,7 +66,6 @@ impl Tokenizer<'_> {
     }
 
     pub fn take_peek_string(&mut self) -> String {
-        self.peek();
         let t = self.last.take();
         match t {
             Some(Token::Ident(s)) => s,
