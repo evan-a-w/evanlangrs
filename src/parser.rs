@@ -6,13 +6,14 @@ pub type ParseResult<T> = Result<T, ParseErr>;
 #[derive(Debug, PartialEq)]
 pub enum ParseErr {
     Expected(String, String),
+    DuplicateTrait(String),
+    TypeNotFound(String),
     Unimplemented,
 }
 
 pub fn parse(stream: &mut Tokenizer) -> ParseResult<AST> {
     match stream.next() {
         Some(Token::Int(i)) => {
-            stream.next();
             Ok(AST::Int(i))
         }
         Some(Token::Ident(s)) if s == "type" => parse_in_type(stream),
@@ -29,7 +30,6 @@ pub fn parse(stream: &mut Tokenizer) -> ParseResult<AST> {
         }
         Some(Token::BraceOpen) => parse_in_scope(stream),
         Some(Token::ParenOpen) => {
-            stream.next();
             let expr = parse(stream)?;
             if stream.peek() != &Some(Token::ParenClose) {
                 return Err(ParseErr::Expected(
@@ -40,9 +40,9 @@ pub fn parse(stream: &mut Tokenizer) -> ParseResult<AST> {
             stream.next();
             Ok(expr)
         }
-        _ => Err(ParseErr::Expected(
-            "expression".to_string(),
-            format!("{:?}", stream.peek()),
+        other => Err(ParseErr::Expected(
+            "expression in parse".to_string(),
+            format!("{:?}", other),
         )),
     }
 }
@@ -398,33 +398,17 @@ fn get_type_expr(stream: &mut Tokenizer, dels: &[Token]) -> ParseResult<TypeExpr
 fn parse_in_trait(stream: &mut Tokenizer) -> ParseResult<AST> {
     let def_type_expr = get_definition_type_expr(stream)?;
 
-    let trait_specs = if stream.peek() == &Some(Token::Ident("where".to_string())) {
-        stream.next();
-        get_trait_specs(stream)?
-    } else {
-        vec![]
-    };
-
-    let paren: bool = match stream.next() {
-        Some(Token::ParenOpen) => Ok(true),
-        Some(Token::BraceOpen) => Ok(false),
-        _ => Err(ParseErr::Expected(
-            "sum or product".to_string(),
-            "EOF".to_string(),
-        )),
-    }?;
-
     let items = get_multiple(
         stream,
-        if paren { sum_sep } else { prod_sep },
-        get_sum_element,
+        prod_sep,
+        get_prod_element,
     )?
     .into_iter()
+    .map(|(a, b)| (a, b.expect("Prod element should never be None")))
     .collect();
 
     Ok(AST::DefTrait {
         name: def_type_expr,
-        trait_specs,
         items,
     })
 }
@@ -473,10 +457,7 @@ fn parse_in_fn(stream: &mut Tokenizer) -> ParseResult<AST> {
             stream.next();
             let next = stream.next();
             if next != Some(Token::Arrow) {
-                return Err(ParseErr::Expected(
-                    "->".to_string(),
-                    format!("{:?}", next),
-                ));
+                return Err(ParseErr::Expected("->".to_string(), format!("{:?}", next)));
             }
             let body = Box::new(parse(stream)?);
             Ok(AST::Fn { params, body })
@@ -527,6 +508,36 @@ fn scope_sep(stream: &mut Tokenizer) -> ParseResult<bool> {
 }
 
 fn parse_in_scope(stream: &mut Tokenizer) -> ParseResult<AST> {
-    stream.next();
-    Ok(AST::Scope(get_multiple0(stream, scope_sep, parse)?))
+    let mut res = match stream.peek() {
+        Some(Token::BraceClose) => {
+            stream.next();
+            return Ok(AST::Scope(vec![], Box::new(AST::Unit)));
+        }
+        other => vec![parse(stream)?],
+    };
+
+    loop {
+        match stream.peek() {
+            Some(Token::BraceClose) => {
+                stream.next();
+                let val = res.pop().map(Box::new).unwrap_or_else(|| Box::new(AST::Unit));
+                return Ok(AST::Scope(res, val));
+            }
+            Some(Token::Semicolon) => {
+                stream.next();
+                if stream.peek() == &Some(Token::BraceClose) {
+                    stream.next();
+                    return Ok(AST::Scope(res, Box::new(AST::Unit)));
+                }
+
+                res.push(parse(stream)?);
+            }
+            other => {
+                return Err(ParseErr::Expected(
+                    "scope separator".to_string(),
+                    format!("{:?}", other),
+                ))
+            }
+        }
+    }
 }

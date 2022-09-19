@@ -3,7 +3,6 @@ use crate::ast::AST::*;
 use crate::ast::*;
 use crate::lexer::*;
 use crate::parser::*;
-use crate::types::*;
 use std::collections::HashMap;
 
 fn assert_str(s: &'static str, ast: AST) {

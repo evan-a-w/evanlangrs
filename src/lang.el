@@ -14,11 +14,16 @@ type a b ... name ( variant of a?, ... )
 trait a b ... name { thingy of type, ... }
 
 (fn (<params>) <expr>)
-fun (a, b, c, ...) <expr>
+fn (a, b, c, ...) <expr>
 
 type = a b identifier | type list sep by "->" | [[ <trait name>, ... ]]
 
 let ident = expr
+
+impl a b trait for a b c where a is [trait1, ...], b is ... = {
+    let method1 = ...
+    let method2 = ...
+}
 
 {
     expr1;

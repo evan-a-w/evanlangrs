@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
-pub type TraitSpec = (String, Vec<String>);
+pub type Traits = Vec<String>;
+pub type TraitSpec = (String, Traits);
 
 #[derive(PartialEq, Debug, Clone)]
 pub enum AST {
@@ -9,10 +10,10 @@ pub enum AST {
         trait_specs: Vec<TraitSpec>,
         fields: SumOrProd,
     },
+    // TODO: Write Impl
     DefTrait {
         name: (String, Vec<String>),
-        trait_specs: Vec<TraitSpec>,
-        items: HashMap<String, Option<TypeExpr>>,
+        items: HashMap<String, TypeExpr>,
     },
     Fn {
         params: Vec<Var>,
@@ -26,7 +27,7 @@ pub enum AST {
         name: String,
         args: Vec<AST>,
     },
-    Scope(Vec<AST>),
+    Scope(Vec<AST>, Box<AST>),
     Unit,
     Int(i64),
     Ident(String),
