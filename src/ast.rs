@@ -10,7 +10,12 @@ pub enum AST {
         trait_specs: Vec<TraitSpec>,
         fields: SumOrProd,
     },
-    // TODO: Write Impl
+    Impl {
+        trait_name: (String, Vec<String>),
+        type_name: (String, Vec<String>),
+        trait_specs: Vec<TraitSpec>,
+        body: Vec<AST>,
+    },
     DefTrait {
         name: (String, Vec<String>),
         items: HashMap<String, TypeExpr>,

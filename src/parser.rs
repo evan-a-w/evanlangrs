@@ -20,6 +20,7 @@ pub fn parse(stream: &mut Tokenizer) -> ParseResult<AST> {
         Some(Token::Ident(s)) if s == "trait" => parse_in_trait(stream),
         Some(Token::Ident(s)) if s == "fn" => parse_in_fn(stream),
         Some(Token::Ident(s)) if s == "let" => parse_in_let(stream),
+        Some(Token::Ident(s)) if s == "impl" => parse_in_impl(stream),
         Some(Token::Ident(name)) => {
             if stream.peek() == &Some(Token::ParenOpen) {
                 stream.next();
@@ -134,6 +135,72 @@ fn parse_in_type(stream: &mut Tokenizer) -> ParseResult<AST> {
     } else {
         vec![]
     };
+
+    let fields = match stream.next() {
+        Some(Token::ParenOpen) => SumOrProd::Sum(
+            get_multiple(stream, sum_sep, get_sum_element)?
+                .into_iter()
+                .collect(),
+        ),
+        Some(Token::BraceOpen) => SumOrProd::Prod(
+            get_multiple(stream, prod_sep, get_prod_element)?
+                .into_iter()
+                .map(|(name, texpr)| {
+                    (
+                        name,
+                        texpr.expect("product type should always have type along with name"),
+                    )
+                })
+                .collect(),
+        ),
+        _ => {
+            return Err(ParseErr::Expected(
+                "sum or product".to_string(),
+                "EOF".to_string(),
+            ))
+        }
+    };
+
+    stream.next();
+
+    Ok(AST::DefType {
+        name: def_type_expr,
+        trait_specs,
+        fields,
+    })
+}
+
+fn get_token(tok: Token, stream: &mut Tokenizer) -> ParseResult<()> {
+    match stream.next() {
+        Some(t) if t == tok => Ok(()),
+        other => Err(ParseErr::Expected(
+            format!("{:?}", tok),
+            format!("{:?}", other),
+        )),
+    }
+}
+
+fn parse_in_impl(stream: &mut Tokenizer) -> ParseResult<AST> {
+    let trait_type = get_definition_type_expr(stream)?;
+    get_string("for", stream)?;
+    let for_name = get_definition_type_expr(stream)?;
+
+    let trait_specs = if stream.peek() == &Some(Token::Ident("where".to_string())) {
+        stream.next();
+        get_trait_specs(stream)?
+    } else {
+        vec![]
+    };
+
+    match stream.peek() {
+        Some(Token::BraceOpen) => {
+            stream.next();
+        }
+        other => Err(ParseErr::Expected(
+            "{".to_string(),
+            format!("{:?}", other),
+        )),
+    }
 
     let fields = match stream.next() {
         Some(Token::ParenOpen) => SumOrProd::Sum(

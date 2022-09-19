@@ -20,7 +20,7 @@ type = a b identifier | type list sep by "->" | [[ <trait name>, ... ]]
 
 let ident = expr
 
-impl a b trait for a b c where a is [trait1, ...], b is ... = {
+impl a b trait for a b c where a is [trait1, ...], b is ... {
     let method1 = ...
     let method2 = ...
 }
