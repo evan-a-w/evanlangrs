@@ -8,6 +8,7 @@ pub enum ParseErr {
     Expected(String, String),
     DuplicateTrait(String),
     TypeNotFound(String),
+    TraitNotFound(String),
     Unimplemented,
 }
 
@@ -181,9 +182,9 @@ fn get_token(tok: Token, stream: &mut Tokenizer) -> ParseResult<()> {
 }
 
 fn parse_in_impl(stream: &mut Tokenizer) -> ParseResult<AST> {
-    let trait_type = get_definition_type_expr(stream)?;
+    let trait_name = get_definition_type_expr(stream)?;
     get_string("for", stream)?;
-    let for_name = get_definition_type_expr(stream)?;
+    let type_name = get_definition_type_expr(stream)?;
 
     let trait_specs = if stream.peek() == &Some(Token::Ident("where".to_string())) {
         stream.next();
@@ -196,43 +197,33 @@ fn parse_in_impl(stream: &mut Tokenizer) -> ParseResult<AST> {
         Some(Token::BraceOpen) => {
             stream.next();
         }
-        other => Err(ParseErr::Expected(
+        other => return Err(ParseErr::Expected(
             "{".to_string(),
             format!("{:?}", other),
         )),
     }
 
-    let fields = match stream.next() {
-        Some(Token::ParenOpen) => SumOrProd::Sum(
-            get_multiple(stream, sum_sep, get_sum_element)?
-                .into_iter()
-                .collect(),
-        ),
-        Some(Token::BraceOpen) => SumOrProd::Prod(
-            get_multiple(stream, prod_sep, get_prod_element)?
-                .into_iter()
-                .map(|(name, texpr)| {
-                    (
-                        name,
-                        texpr.expect("product type should always have type along with name"),
-                    )
-                })
-                .collect(),
-        ),
-        _ => {
-            return Err(ParseErr::Expected(
-                "sum or product".to_string(),
-                "EOF".to_string(),
-            ))
+    let exprs = match parse_in_scope(stream)? {
+        AST::Scope(mut body, res) => {
+            body.push(*res);
+            body
         }
+        _ => unreachable!(),
     };
 
-    stream.next();
+    let mut body = vec![];
+    for expr in exprs {
+        match expr {
+            AST::Let { ident, body: expr } => body.push((ident, expr)),
+            _ => return Err(ParseErr::Expected("let expr inside impl".to_string(), format!("{:?}", expr))),
+        }
+    }
 
-    Ok(AST::DefType {
-        name: def_type_expr,
+    Ok(AST::Impl {
+        trait_name,
+        type_name,
         trait_specs,
-        fields,
+        body,
     })
 }
 

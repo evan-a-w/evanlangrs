@@ -5,6 +5,7 @@ mod ast;
 mod lexer;
 mod parser;
 mod tests;
+mod stage1_types;
 mod stage1;
 
 use crate::lexer::*;

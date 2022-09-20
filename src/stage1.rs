@@ -1,35 +1,8 @@
 use crate::parser::*;
 use crate::ast::*;
+use crate::stage1_types::*;
 use std::collections::HashMap;
 use std::collections::HashSet;
-
-
-#[derive(Clone, Debug)]
-pub struct Type {
-    name: String,
-    params: Vec<TraitSpec>,
-    fields: SumOrProd,
-    members: HashMap<String, TypeExpr>,
-    traits: HashSet<TraidId>,
-}
-
-#[derive(Clone, Debug)]
-pub struct Trait {
-    name: String,
-    params: Vec<String>,
-    members: HashMap<String, TypeExpr>,
-}
-
-pub type TraidId = usize;
-pub type TypeId = usize;
-
-#[derive(Clone, Debug)]
-struct ParseState {
-    types: Vec<Type>,
-    traits: Vec<Trait>,
-    trait_map: HashMap<String, TraidId>,
-    type_map: HashMap<String, Vec<TypeId>>,
-}
 
 fn make_params(params: Vec<String>, trait_spec: Vec<TraitSpec>) -> Vec<TraitSpec> {
     let mut map = trait_spec.into_iter().collect::<HashMap<_, _>>();
@@ -52,7 +25,17 @@ impl ParseState {
         }
     }
 
-    pub fn process_types_and_traits(&mut self, ast: AST) -> ParseResult<ASTp> {
+    fn process_impls(&mut self, ast: ASTpp) -> ParseResult<ASTp> {
+        match ast {
+            ASTpp::Impl { trait_name, type_name, trait_specs, body } => {
+                let trait_id = self.trait_map.get(&trait_name.0).ok_or_else(|| {
+                    ParseErr::TraitNotFound(trait_name.0.clone())
+                })?;
+            }
+        }
+    }
+
+    pub fn process_types_and_traits(&mut self, ast: AST) -> ParseResult<ASTpp> {
         Ok(match ast {
             AST::DefType { name: (name, params), trait_specs, fields } => {
                 let id = self.add_type(Type {
@@ -68,7 +51,21 @@ impl ParseState {
                     .or_insert(Vec::new())
                     .push(id);
 
-                ASTp::Unit
+                ASTpp::Unit
+            }
+            AST::Impl { trait_name, type_name, trait_specs, body } => {
+                let mut nb = vec![];
+                for (name, expr) in body {
+                    nb.push((name, self.process_types_and_traits(*expr)?));
+                }
+
+                let body = nb;
+                ASTpp::Impl {
+                    trait_name,
+                    type_name,
+                    trait_specs,
+                    body,
+                }
             }
             AST::DefTrait { name: (name, params), items } => {
                 let id = self.add_trait(Trait {
@@ -83,22 +80,22 @@ impl ParseState {
 
                 self.trait_map.insert(name, id);
 
-                ASTp::Unit
+                ASTpp::Unit
             }
             AST::Fn { params, body } => {
-                ASTp::Fn {
+                ASTpp::Fn {
                     params,
                     body: Box::new(self.process_types_and_traits(*body)?),
                 }
             }
             AST::Let { ident, body } => {
-                ASTp::Let {
+                ASTpp::Let {
                     ident,
                     body: Box::new(self.process_types_and_traits(*body)?),
                 }
             }
             AST::Call { name, args } => {
-                ASTp::Call {
+                ASTpp::Call {
                     name,
                     args: {
                         let mut a = vec![];
@@ -110,7 +107,7 @@ impl ParseState {
                 }
             }
             AST::Scope(things, res) => {
-                ASTp::Scope(
+                ASTpp::Scope(
                     {
                         let mut args = vec![];
                         for arg in things.into_iter() {
@@ -121,10 +118,10 @@ impl ParseState {
                     Box::new(self.process_types_and_traits(*res)?),
                 )
             }
-            AST::Unit => ASTp::Unit,
-            AST::Int(i) => ASTp::Int(i),
-            AST::Ident(s) => ASTp::Ident(s),
-        })
+            AST::Unit => ASTpp::Unit,
+            AST::Int(i) => ASTpp::Int(i),
+            AST::Ident(s) => ASTpp::Ident(s),
+        }).and_then(|ast| self.process_impls(ast))
     }
 
     fn string_to_typeid(&self, name: &str) -> ParseResult<TypeId> {
@@ -216,58 +213,4 @@ impl ParseState {
         self.traits.push(t);
         self.traits.len() - 1
     }
-}
-
-#[derive(PartialEq, Debug, Clone)]
-pub enum ASTp {
-    Fn {
-        params: Vec<Var>,
-        body: Box<ASTp>,
-    },
-    Let {
-        ident: Var,
-        body: Box<ASTp>,
-    },
-    Call {
-        name: String,
-        args: Vec<ASTp>,
-    },
-    Scope(Vec<ASTp>, Box<ASTp>),
-    Unit,
-    Int(i64),
-    Ident(String),
-}
-
-#[derive(PartialEq, Debug, Clone)]
-pub enum A {
-    Fn {
-        params: Vec<AVar>,
-        body: Box<A>,
-    },
-    Let {
-        ident: AVar,
-        body: Box<A>,
-    },
-    Call {
-        name: String,
-        args: Vec<A>,
-    },
-    Scope(Vec<A>, Box<A>),
-    Unit,
-    Int(i64),
-    Ident(String),
-}
-
-#[derive(Debug, PartialEq, Clone)]
-pub struct AVar {
-    pub name: String,
-    pub type_expr: AType,
-}
-
-#[derive(Debug, PartialEq, Clone)]
-pub enum AType {
-    Any,
-    Ident(TypeId),
-    Normal(TypeId, Vec<AType>),
-    Func(Vec<AType>, Box<AType>),
 }
