@@ -28,10 +28,17 @@ impl ParseState {
     fn process_impls(&mut self, ast: ASTpp) -> ParseResult<ASTp> {
         match ast {
             ASTpp::Impl { trait_name, type_name, trait_specs, body } => {
-                let trait_id = self.trait_map.get(&trait_name.0).ok_or_else(|| {
+                let (trait_id, mut impls) = self.trait_map.get(&trait_name.0).ok_or_else(|| {
                     ParseErr::TraitNotFound(trait_name.0.clone())
                 })?;
+                let type_id = self.type_map.get(&type_name.0).ok_or_else(|| {
+                    ParseErr::TypeNotFound(type_name.0.clone())
+                })?.last().unwrap();
+                impls.insert(type_id.clone());
+                self.types[*type_id].traits.insert(*trait_id);
+                Ok(ASTp::Unit)
             }
+            
         }
     }
 
@@ -59,7 +66,7 @@ impl ParseState {
                     nb.push((name, self.process_types_and_traits(*expr)?));
                 }
 
-                let body = nb;
+                let body = Box::new(nb);
                 ASTpp::Impl {
                     trait_name,
                     type_name,
@@ -78,7 +85,7 @@ impl ParseState {
                     return Err(ParseErr::DuplicateTrait(name));
                 }
 
-                self.trait_map.insert(name, id);
+                self.trait_map.insert(name, (id, HashSet::new()));
 
                 ASTpp::Unit
             }

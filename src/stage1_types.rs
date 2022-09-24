@@ -84,18 +84,18 @@ pub enum AType {
 
 #[derive(Clone, Debug)]
 pub struct Type {
-    name: String,
-    params: Vec<TraitSpec>,
-    fields: SumOrProd,
-    members: HashMap<String, TypeExpr>,
-    traits: HashSet<TraidId>,
+    pub name: String,
+    pub params: Vec<TraitSpec>,
+    pub fields: SumOrProd,
+    pub members: HashMap<String, TypeExpr>,
+    pub traits: HashSet<TraidId>,
 }
 
 #[derive(Clone, Debug)]
 pub struct Trait {
-    name: String,
-    params: Vec<String>,
-    members: HashMap<String, TypeExpr>,
+    pub name: String,
+    pub params: Vec<String>,
+    pub members: HashMap<String, TypeExpr>,
 }
 
 pub type TraidId = usize;
@@ -103,8 +103,8 @@ pub type TypeId = usize;
 
 #[derive(Clone, Debug)]
 pub struct ParseState {
-    types: Vec<Type>,
-    traits: Vec<Trait>,
-    trait_map: HashMap<String, TraidId>,
-    type_map: HashMap<String, Vec<TypeId>>,
+    pub types: Vec<Type>,
+    pub traits: Vec<Trait>,
+    pub trait_map: HashMap<String, (TraidId, HashSet<TypeId>)>,
+    pub type_map: HashMap<String, Vec<TypeId>>,
 }
